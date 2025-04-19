@@ -5,10 +5,35 @@ import { setupAuth } from "./auth";
 import { z } from "zod";
 import { insertGenerationSchema } from "@shared/schema";
 import { generateContent } from "./openai";
+import { sendPasswordResetEmail, verifyResetToken, resetPassword } from './email';
+
+// Rate limiting middleware
+const rateLimitMiddleware = async (req: any, res: any, next: any) => {
+  if (!req.isAuthenticated()) {
+    return next();
+  }
+
+  const user = req.user;
+  
+  // Check if free user has reached daily limit
+  if (!user.premium && user.dailyGenerations >= 3) {
+    return res.status(403).json({ 
+      message: "Daily generation limit reached",
+      generationsLeft: 0
+    });
+  }
+
+  next();
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // sets up /api/register, /api/login, /api/logout, /api/user
   setupAuth(app);
+
+  // Apply rate limiting to all tool-related routes
+  app.use("/api/tools", rateLimitMiddleware);
+  app.use("/api/generate", rateLimitMiddleware);
+  app.use("/api/generations", rateLimitMiddleware);
 
   // Get all AI tools
   app.get("/api/tools", async (req, res) => {
@@ -70,7 +95,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Increment user's generation count
       await storage.incrementUserGenerations(user.id);
 
-      res.status(200).json({ content });
+      const generationsLeft = user?.premium ? "∞" : user?.dailyGenerations ? 3 - user.dailyGenerations : 3;
+
+      res.status(200).json({ content, generationsLeft });
     } catch (error) {
       res.status(500).json({ message: "Failed to generate content" });
     }
@@ -180,6 +207,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({ message: "Upgrade successful", user });
     } catch (error) {
       res.status(500).json({ message: "Failed to process upgrade" });
+    }
+  });
+
+  // Request password reset
+  app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+      const { username } = req.body;
+      if (!username) {
+        return res.status(400).json({ message: 'Username is required' });
+      }
+
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        // Don't reveal if user exists or not
+        return res.status(200).json({ message: 'If an account exists with that username, a password reset email has been sent' });
+      }
+
+      const result = await sendPasswordResetEmail(user.email, user.username);
+      if (!result.success) {
+        return res.status(500).json({ message: result.message });
+      }
+
+      res.status(200).json({ message: 'If an account exists with that username, a password reset email has been sent' });
+    } catch (error) {
+      console.error('Error in forgot-password:', error);
+      res.status(500).json({ message: 'An error occurred while processing your request' });
+    }
+  });
+
+  // Verify reset token
+  app.get('/api/auth/verify-reset-token', async (req, res) => {
+    try {
+      const { token } = req.query;
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ message: 'Invalid token' });
+      }
+
+      const result = await verifyResetToken(token);
+      if (!result.valid) {
+        return res.status(400).json({ message: 'Invalid or expired token' });
+      }
+
+      res.status(200).json({ valid: true });
+    } catch (error) {
+      console.error('Error in verify-reset-token:', error);
+      res.status(500).json({ message: 'An error occurred while verifying the token' });
+    }
+  });
+
+  // Reset password
+  app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword) {
+        return res.status(400).json({ message: 'Token and new password are required' });
+      }
+
+      const result = await resetPassword(token, newPassword);
+      if (!result.success) {
+        return res.status(400).json({ message: result.message });
+      }
+
+      res.status(200).json({ message: 'Password has been reset successfully' });
+    } catch (error) {
+      console.error('Error in reset-password:', error);
+      res.status(500).json({ message: 'An error occurred while resetting your password' });
     }
   });
 

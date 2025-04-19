@@ -1,16 +1,48 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Loader2, Info, Star, Copy, RefreshCw, Save } from "lucide-react";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import {
+  Loader2,
+  Info,
+  Star,
+  Copy,
+  RefreshCw,
+  Save,
+  Share2,
+} from "lucide-react";
+import { FaLinkedin, FaTwitter, FaReddit } from "react-icons/fa";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 
 interface ToolModalProps {
   isOpen: boolean;
@@ -24,6 +56,12 @@ interface ToolModalProps {
   } | null;
 }
 
+const socialPlatforms = [
+  { id: "linkedin", name: "LinkedIn", icon: FaLinkedin },
+  { id: "twitter", name: "X (Twitter)", icon: FaTwitter },
+  { id: "reddit", name: "Reddit", icon: FaReddit },
+];
+
 export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -34,13 +72,12 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
   const [generatedContent, setGeneratedContent] = useState("");
   const [saveTitle, setSaveTitle] = useState("");
   const [saveTags, setSaveTags] = useState("");
-  
-  // Reset form when modal closes or tool changes
+
   useEffect(() => {
     if (tool) {
       setSaveTitle(tool.name + " - " + new Date().toLocaleDateString());
     }
-    
+
     if (!isOpen) {
       setTimeout(() => {
         setPrompt("");
@@ -77,12 +114,32 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
       });
 
       const data = await res.json();
+
+      if (res.status === 403 && data.message === "Daily generation limit reached") {
+        toast({
+          variant: "destructive",
+          title: "Generation Limit Reached",
+          description:
+            "You've reached your daily limit of 3 generations. Upgrade to premium for unlimited generations.",
+        });
+        setStatus("input");
+        return;
+      }
+
       setGeneratedContent(data.content);
       setStatus("result");
 
-      // Update the title with the first line of the content or first 30 chars
-      const firstLine = data.content.split("\n")[0].replace(/^#+\s*/, ""); // Remove markdown headings
-      setSaveTitle((tool.name + " - " + (firstLine.length > 30 ? firstLine.substring(0, 30) + "..." : firstLine)).trim());
+      // Invalidate user query to refresh rate limit
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+
+      const firstLine = data.content.split("\n")[0].replace(/^#+\s*/, "");
+      setSaveTitle(
+        (
+          tool.name +
+          " - " +
+          (firstLine.length > 30 ? firstLine.substring(0, 30) + "..." : firstLine)
+        ).trim()
+      );
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -110,9 +167,8 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
         description: "Your generation has been saved successfully.",
       });
 
-      // Invalidate generations query to refresh the list
       queryClient.invalidateQueries({ queryKey: ["/api/generations"] });
-      
+
       onClose();
     } catch (error: any) {
       toast({
@@ -131,11 +187,62 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
     });
   };
 
-  const canGenerate = !user?.premium && user?.dailyGenerations ? user.dailyGenerations < 3 : true;
-  const generationsLeft = user?.premium ? "∞" : user?.dailyGenerations ? 3 - user.dailyGenerations : 3;
+  const handleShare = (platform: string) => {
+    if (!generatedContent) return;
+
+    const shareUrl = getShareUrl(platform, generatedContent, saveTitle);
+    window.open(shareUrl, "_blank");
+    
+    toast({
+      title: "Shared",
+      description: `Content shared to ${socialPlatforms.find(p => p.id === platform)?.name}`,
+    });
+  };
+
+  const getShareUrl = (platform: string, content: string, title: string) => {
+    const encodedContent = encodeURIComponent(content);
+    const encodedTitle = encodeURIComponent(title);
+    
+    switch (platform) {
+      case "linkedin":
+        return `https://www.linkedin.com/sharing/share-offsite/?url=${encodedContent}`;
+      case "twitter":
+        return `https://twitter.com/intent/tweet?text=${encodedTitle}&url=${encodedContent}`;
+      case "reddit":
+        return `https://www.reddit.com/submit?title=${encodedTitle}&text=${encodedContent}`;
+      case "facebook":
+        return `https://www.facebook.com/sharer/sharer.php?u=${encodedContent}`;
+      default:
+        return "";
+    }
+  };
+
+  const availablePlatforms = user?.premium 
+    ? socialPlatforms 
+    : socialPlatforms.slice(0, 1);
+
+  const canGenerate =
+    !user?.premium && user?.dailyGenerations
+      ? user.dailyGenerations < 3
+      : true;
+  const generationsLeft = user?.premium
+    ? "∞"
+    : user?.dailyGenerations
+    ? 3 - user.dailyGenerations
+    : 3;
+
+  const handleClose = () => {
+    // Always refresh data after modal closes
+    queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/tools"] });
+    if (user?.premium) {
+      queryClient.invalidateQueries({ queryKey: ["/api/generations"] });
+    }
+    onClose();
+  };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{tool?.name || "AI Tool"}</DialogTitle>
@@ -193,13 +300,15 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
                     </Select>
                   </div>
                 </div>
-                
+
                 {!user?.premium && (
                   <Alert>
                     <Info className="h-4 w-4" />
                     <AlertTitle>Free Tier Limitation</AlertTitle>
                     <AlertDescription>
-                      You have {generationsLeft} {generationsLeft === 1 ? 'generation' : 'generations'} left today. Upgrade to Premium for unlimited access.
+                      You have {generationsLeft}{" "}
+                      {generationsLeft === 1 ? "generation" : "generations"} left today.
+                      Upgrade to Premium for unlimited access.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -217,7 +326,9 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
             >
               <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
               <h3 className="text-lg font-medium">Generating content...</h3>
-              <p className="text-slate-500 dark:text-slate-400">This may take a few moments</p>
+              <p className="text-slate-500 dark:text-slate-400">
+                This may take a few moments
+              </p>
             </motion.div>
           )}
 
@@ -230,32 +341,80 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
               transition={{ duration: 0.2 }}
               className="space-y-4"
             >
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-semibold">Generated Content</h3>
-                <div className="flex space-x-2">
-                  <Button variant="outline" size="icon" onClick={copyToClipboard}>
-                    <Copy className="h-4 w-4" />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <h3 className="text-lg font-medium">Generated Content</h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={copyToClipboard}
+                    title="Copy to clipboard"
+                  >
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy
                   </Button>
-                  <Button variant="outline" size="icon" onClick={() => setStatus("input")}>
-                    <RefreshCw className="h-4 w-4" />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title="Share content"
+                      >
+                        <Share2 className="h-4 w-4 mr-2" />
+                        Share
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {availablePlatforms.map((platform) => (
+                        <DropdownMenuItem
+                          key={platform.id}
+                          onClick={() => handleShare(platform.id)}
+                          className="flex items-center"
+                        >
+                          <platform.icon className="mr-2 h-4 w-4" />
+                          {platform.name}
+                        </DropdownMenuItem>
+                      ))}
+                      {!user?.premium && (
+                        <DropdownMenuItem
+                          className="text-primary"
+                          onClick={() => {
+                            window.location.href = "#pricing";
+                            handleClose();
+                          }}
+                        >
+                          <Star className="mr-2 h-4 w-4" />
+                          Upgrade to share on all platforms
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setStatus("input")}
+                    title="Generate new content"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Reset
                   </Button>
                 </div>
               </div>
-              
-              <div className="prose max-w-none dark:prose-invert border border-slate-200 dark:border-slate-700 rounded-md p-4 bg-white dark:bg-slate-900 max-h-96 overflow-y-auto">
-                {generatedContent.split('\n').map((line, i) => {
-                  if (line.startsWith('# ')) {
+
+              <div className="prose max-w-none dark:prose-invert max-h-[60vh] overflow-y-auto">
+                {generatedContent.split("\n").map((line, i) => {
+                  if (line.startsWith("# ")) {
                     return <h1 key={i}>{line.substring(2)}</h1>;
-                  } else if (line.startsWith('## ')) {
+                  } else if (line.startsWith("## ")) {
                     return <h2 key={i}>{line.substring(3)}</h2>;
-                  } else if (line.startsWith('### ')) {
+                  } else if (line.startsWith("### ")) {
                     return <h3 key={i}>{line.substring(4)}</h3>;
-                  } else if (line.startsWith('#### ')) {
+                  } else if (line.startsWith("#### ")) {
                     return <h4 key={i}>{line.substring(5)}</h4>;
                   } else if (line.match(/^\d+\.\s/)) {
-                    return <p key={i}>{line}</p>; // Simple handling for numbered lists
-                  } else if (line.startsWith('-')) {
-                    return <p key={i}>{line}</p>; // Simple handling for bullet points
+                    return <p key={i}>{line}</p>;
+                  } else if (line.startsWith("-")) {
+                    return <p key={i}>{line}</p>;
                   } else if (!line) {
                     return <br key={i} />;
                   } else {
@@ -263,44 +422,38 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
                   }
                 })}
               </div>
-              
-              {user?.premium ? (
+
+              {user?.premium && (
                 <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="save-title">Save As</Label>
-                    <Input 
-                      id="save-title" 
-                      value={saveTitle} 
-                      onChange={(e) => setSaveTitle(e.target.value)} 
-                      placeholder="Enter a title for this generation"
-                    />
+                  <Separator />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="saveTitle">Save Title</Label>
+                      <Input
+                        id="saveTitle"
+                        value={saveTitle}
+                        onChange={(e) => setSaveTitle(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="saveTags">Tags (comma-separated)</Label>
+                      <Input
+                        id="saveTags"
+                        value={saveTags}
+                        onChange={(e) => setSaveTags(e.target.value)}
+                        placeholder="e.g. marketing, blog, social"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <Label htmlFor="save-tags">Tags (optional)</Label>
-                    <Input 
-                      id="save-tags" 
-                      value={saveTags} 
-                      onChange={(e) => setSaveTags(e.target.value)} 
-                      placeholder="E.g. blog, marketing, ideas"
-                    />
-                  </div>
+                  <Button
+                    className="w-full"
+                    onClick={handleSave}
+                    disabled={!saveTitle.trim()}
+                  >
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Generation
+                  </Button>
                 </div>
-              ) : (
-                <Alert className="bg-primary-50 dark:bg-primary-900/20 border-primary-100 dark:border-primary-800">
-                  <Star className="h-4 w-4 text-primary" />
-                  <AlertTitle className="text-primary-800 dark:text-primary-300">Save with Premium</AlertTitle>
-                  <AlertDescription className="text-primary-700 dark:text-primary-400">
-                    Upgrade to Premium to save unlimited generations and access them anytime from your dashboard.
-                  </AlertDescription>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="default" asChild>
-                      <a href="#pricing" onClick={onClose}>Upgrade Now</a>
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={onClose}>
-                      Not Now
-                    </Button>
-                  </div>
-                </Alert>
               )}
             </motion.div>
           )}
@@ -312,15 +465,12 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button 
-                onClick={handleGenerate} 
-                disabled={!canGenerate || !prompt.trim()}
-              >
+              <Button onClick={handleGenerate} disabled={!canGenerate || !prompt.trim()}>
                 Generate
               </Button>
             </>
           )}
-          
+
           {status === "result" && (
             <>
               <Button variant="outline" onClick={onClose}>
@@ -339,3 +489,6 @@ export default function ToolModal({ isOpen, onClose, tool }: ToolModalProps) {
     </Dialog>
   );
 }
+
+
+

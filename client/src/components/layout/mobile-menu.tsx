@@ -39,8 +39,8 @@ export default function MobileMenu({ isOpen, onClose, user, onLogout }: MobileMe
   const navLinks = [
     { href: "/", label: "Home" },
     { href: "/dashboard", label: "Dashboard" },
-    { href: "/#pricing", label: "Pricing" },
-    { href: "/#features", label: "About" },
+    { href: "/pricing", label: "Pricing" },
+    { href: "/about", label: "About" },
   ];
 
   const handleLinkClick = () => {

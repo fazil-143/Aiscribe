@@ -4,16 +4,25 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { ToolCard } from "./ui/card-hover";
 import ToolModal from "./tool-modal";
+import { useAuth } from "@/hooks/use-auth";
+import { Link, useLocation } from "wouter";
+import { Tool } from "@shared/schema";
 
 export default function ToolsSection() {
-  const [selectedTool, setSelectedTool] = useState<any | null>(null);
+  const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
 
-  const { data: tools, isLoading, error } = useQuery({
+  const { data: tools = [], isLoading, error } = useQuery<Tool[]>({
     queryKey: ["/api/tools"],
   });
 
-  const handleToolClick = (tool: any) => {
+  const handleToolClick = (tool: Tool) => {
+    if (!user) {
+      setLocation("/auth");
+      return;
+    }
     setSelectedTool(tool);
     setModalOpen(true);
   };
@@ -65,7 +74,7 @@ export default function ToolsSection() {
             whileInView="show"
             viewport={{ once: true, margin: "-100px" }}
           >
-            {tools?.map((tool: any) => (
+            {tools?.map((tool: Tool) => (
               <motion.div key={tool.id} variants={item}>
                 <ToolCard
                   icon={tool.icon}

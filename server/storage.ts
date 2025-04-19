@@ -1,6 +1,7 @@
 import { users, User, InsertUser, aiTools, Tool, InsertTool, generations, Generation, InsertGeneration } from "@shared/schema";
 import session from "express-session";
 import createMemoryStore from "memorystore";
+import { hashPassword } from "@shared/utils";
 
 const MemoryStore = createMemoryStore(session);
 
@@ -28,12 +29,18 @@ export interface IStorage {
 
   // Session store
   sessionStore: any;
+
+  // Password reset operations
+  storeResetToken(username: string, token: string, expiry: Date): Promise<void>;
+  verifyResetToken(token: string): Promise<{ valid: boolean; username?: string }>;
+  resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message: string }>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private tools: Map<number, Tool>;
   private generations: Map<number, Generation>;
+  private resetTokens: Map<string, { username: string; expiry: Date }>;
   private userIdCounter: number;
   private toolIdCounter: number;
   private generationIdCounter: number;
@@ -43,6 +50,7 @@ export class MemStorage implements IStorage {
     this.users = new Map();
     this.tools = new Map();
     this.generations = new Map();
+    this.resetTokens = new Map();
     this.userIdCounter = 1;
     this.toolIdCounter = 1;
     this.generationIdCounter = 1;
@@ -59,7 +67,7 @@ export class MemStorage implements IStorage {
       {
         name: "Blog Generator",
         description: "Generate full blog posts with sections, headings, and engaging content based on your topic.",
-        icon: "description",
+        icon: "edit_note",
         color: "primary",
       },
       {
@@ -71,19 +79,19 @@ export class MemStorage implements IStorage {
       {
         name: "Idea Summarizer",
         description: "Transform lengthy concepts into concise, impactful summaries without losing key information.",
-        icon: "lightbulb",
+        icon: "tips_and_updates",
         color: "accent",
       },
       {
         name: "Content Rewriter",
         description: "Rewrite existing content to improve readability, tone, or to create multiple variations.",
-        icon: "autorenew",
+        icon: "cached",
         color: "primary",
       },
       {
         name: "Email Composer",
         description: "Create professional emails with appropriate tone and structure for any business context.",
-        icon: "email",
+        icon: "mail",
         color: "secondary",
       },
       {
@@ -216,6 +224,51 @@ export class MemStorage implements IStorage {
 
   async deleteGeneration(id: number): Promise<boolean> {
     return this.generations.delete(id);
+  }
+
+  // Password reset operations
+  async storeResetToken(username: string, token: string, expiry: Date): Promise<void> {
+    this.resetTokens.set(token, { username, expiry });
+  }
+
+  async verifyResetToken(token: string): Promise<{ valid: boolean; username?: string }> {
+    const resetData = this.resetTokens.get(token);
+    if (!resetData) {
+      return { valid: false };
+    }
+
+    if (resetData.expiry < new Date()) {
+      this.resetTokens.delete(token);
+      return { valid: false };
+    }
+
+    return { valid: true, username: resetData.username };
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    const resetData = this.resetTokens.get(token);
+    if (!resetData) {
+      return { success: false, message: 'Invalid or expired reset token' };
+    }
+
+    if (resetData.expiry < new Date()) {
+      this.resetTokens.delete(token);
+      return { success: false, message: 'Reset token has expired' };
+    }
+
+    const user = Array.from(this.users.values()).find(u => u.username === resetData.username);
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    // Update the user's password
+    const hashedPassword = await hashPassword(newPassword);
+    this.users.set(user.id, { ...user, password: hashedPassword });
+
+    // Remove the used token
+    this.resetTokens.delete(token);
+
+    return { success: true, message: 'Password reset successful' };
   }
 }
 

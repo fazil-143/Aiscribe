@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { Redirect } from "wouter";
+import { Redirect, Link } from "wouter";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -31,6 +31,7 @@ const loginSchema = z.object({
 });
 
 const registerSchema = insertUserSchema.extend({
+  email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string(),
 }).refine(data => data.password === data.confirmPassword, {
@@ -56,6 +57,7 @@ export default function AuthPage() {
     resolver: zodResolver(registerSchema),
     defaultValues: {
       username: "",
+      email: "",
       password: "",
       confirmPassword: "",
     },
@@ -159,7 +161,7 @@ export default function AuthPage() {
                         )}
                       </div>
                     </CardContent>
-                    <CardFooter>
+                    <CardFooter className="flex flex-col space-y-4">
                       <Button
                         type="submit"
                         className="w-full"
@@ -174,6 +176,15 @@ export default function AuthPage() {
                           "Sign in"
                         )}
                       </Button>
+                      <Link href="/forgot-password">
+                        <Button
+                          type="button"
+                          variant="link"
+                          className="w-full"
+                        >
+                          Forgot Password?
+                        </Button>
+                      </Link>
                     </CardFooter>
                   </form>
                 </TabsContent>
@@ -192,6 +203,21 @@ export default function AuthPage() {
                         {registerForm.formState.errors.username && (
                           <p className="text-sm text-red-500">
                             {registerForm.formState.errors.username.message}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="register-email">Email</Label>
+                        <Input
+                          id="register-email"
+                          type="email"
+                          {...registerForm.register("email")}
+                          placeholder="Enter your email"
+                          autoComplete="email"
+                        />
+                        {registerForm.formState.errors.email && (
+                          <p className="text-sm text-red-500">
+                            {registerForm.formState.errors.email.message}
                           </p>
                         )}
                       </div>
