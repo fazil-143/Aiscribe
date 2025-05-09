@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export default defineConfig({
-  base: '/',
+  base: './',
   plugins: [
     react(),
     runtimeErrorOverlay(),
@@ -27,7 +27,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "client", "src"),
       "@shared": path.resolve(__dirname, "shared"),
-      "@assets": path.resolve(__dirname, "attached_assets"),
+      "@assets": path.resolve(__dirname, "assets"),
     },
   },
   root: path.resolve(__dirname, "client"),
